@@ -1,0 +1,33 @@
+## q-frame（Video-MME）复现：离线处理 + Qwen3-VL vLLM 多图评估
+
+### 1）离线处理（生成 candidate/selected + 多分辨率帧图）
+
+脚本：`models/baselines/q-frame/code/offline_videomme_qframe.py`
+
+默认读取：`src/Video-MME_copy.tsv`（按该顺序写出 jsonl 与图片）
+
+默认输出到：`src/data/video-mme/processed/q-frame/`
+
+输出内容：
+- `candidate_frame_indices.jsonl`
+- `selected_frame_indices.jsonl`
+- `selected_frames_manifest.jsonl`（评估侧建议直接用这个；包含 `image_paths`）
+- `images/<index>/*.jpg`（多分辨率：文件名里带 `d2/d4/d8`）
+
+### 2）评估（走多张 image 输入）
+
+已在 `datasets_video/base.py` 增加 `type=image` 支持；`datasets_video/videomme.py` 会在 `line.image_paths` 存在时优先用多图输入。
+
+运行评估时，把 `--sample_path` 指向离线输出的 manifest，例如：
+- `src/data/video-mme/processed/q-frame/selected_frames_manifest.jsonl`
+
+### 3）自动重启评估脚本
+
+脚本：`models/baselines/q-frame/code/bash/monitor_hup_videomme.sh`
+
+你需要按机器环境修改其中：
+- `MODEL_PATH`
+- `INFERENCE_SCRIPT`
+- `QFRAME_MANIFEST`
+- `OUTPUT_DIR`
+

@@ -1,0 +1,10 @@
+*.jpg
+*.log
+*.jsonl
+*.parquet
+*.csv
+*.xlsx
+*.pkl
+*.pyc
+*.flag
+*.json
