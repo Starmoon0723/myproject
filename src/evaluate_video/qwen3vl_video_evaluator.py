@@ -1,20 +1,19 @@
-import gc
 import json
 import logging
 import os
 import os.path as osp
 import time
 
-import numpy as np
 import pandas as pd
-import torch
-from modelscope import AutoProcessor, Qwen3VLMoeForConditionalGeneration, Qwen3VLForConditionalGeneration
+from openai import OpenAI
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-
-from vlmeval.smp import *  # noqa: F403 - keep for timestr/githash compatibility
+from datetime import datetime
+import subprocess
+# from vlmeval.smp import githash, timestr
 
 from datasets_video import (
+    FCMBenchDataset,
     CharadesSTADataset,
     LVBenchDataset,
     MLVUDataset,
@@ -22,12 +21,49 @@ from datasets_video import (
     MVBenchDataset,
     VideoMMEDataset,
     VideoMMMUDataset,
-    FCMBenchDataset,
     collate_fn,
 )
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+def timestr(format_type="day"):
+    """
+    获取当前时间字符串
+    format_type: "day" -> YYYYMMDD, "hour" -> YYYYMMDD_HHMMSS
+    """
+    now = datetime.now()
+    if format_type == "day":
+        return now.strftime("%Y%m%d")
+    elif format_type == "hour":
+        return now.strftime("%Y%m%d_%H%M%S")
+    else:
+        return now.strftime("%Y%m%d")
+
+def githash(digits=8):
+    """
+    获取当前 git 仓库的 commit hash
+    digits: 返回的哈希位数
+    """
+    try:
+        # 获取当前文件的目录
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # 执行 git 命令获取 commit hash
+        result = subprocess.run(
+            ['git', 'rev-parse', 'HEAD'],
+            cwd=current_dir,
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        
+        if result.returncode == 0:
+            return result.stdout.strip()[:digits]
+        else:
+            return "unknown"
+    except Exception:
+        return "unknown"
 
 
 class Evaluator:

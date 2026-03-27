@@ -86,11 +86,19 @@ def main(args):
             cmd.append("--disable_resume")
 
         p = subprocess.Popen(cmd, env=os.environ.copy())
-        processes.append(p)
+        processes.append((group_id, base_url, p))
         logger.info("[Group %s] %s", group_id, base_url)
 
-    for p in processes:
-        p.wait()
+    failed = []
+    for group_id, base_url, p in processes:
+        rc = p.wait()
+        if rc != 0:
+            failed.append((group_id, base_url, rc))
+
+    if failed:
+        for group_id, base_url, rc in failed:
+            logger.error("Worker failed: group=%s base_url=%s rc=%s", group_id, base_url, rc)
+        raise SystemExit(1)
 
     merge_evaluator = Evaluator(
         group_id=0,
@@ -113,6 +121,7 @@ def main(args):
         logger.info("Results merged successfully")
     else:
         logger.error("Failed to merge results")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
@@ -123,12 +132,12 @@ if __name__ == "__main__":
     parser.add_argument("--num_groups", type=int, default=1)
 
     parser.add_argument("--model_name", type=str, default="Qwen3-VL-8B-Instruct")
-    parser.add_argument("--model_path", type=str, default="Qwen/Qwen3-VL-8B-Instruct")
+    parser.add_argument("--model_path", type=str, default="/data/oceanus_ctr/j-cuirunze-jk/ckpts/Qwen/Qwen3-VL-8B-Instruct")
     parser.add_argument("--dataset", type=str, default="Video-MME")
-    parser.add_argument("--output", type=str, default="./outputs/Qwen3-VL-online")
+    parser.add_argument("--output", type=str, default="/data/oceanus_ctr/j-shangshouduo-jk/myproject/output/results/backbone")
 
-    parser.add_argument("--base_urls", type=str, default="http://127.0.0.1:22002/v1")
-    parser.add_argument("--base_url", type=str, default="http://127.0.0.1:22002/v1")
+    parser.add_argument("--base_urls", type=str, default="http://127.0.0.1:8506/v1")
+    parser.add_argument("--base_url", type=str, default="http://127.0.0.1:8506/v1")
     parser.add_argument("--api_key", type=str, default="EMPTY")
     parser.add_argument("--request_timeout", type=int, default=3600)
     parser.add_argument("--max_retries", type=int, default=3)

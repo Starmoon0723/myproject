@@ -219,6 +219,39 @@ class Evaluator:
                 time.sleep(min(2**attempt, 10))
         raise RuntimeError(f"Request failed after {self.max_retries} retries: {last_err}")
 
+    @staticmethod
+    def _extract_response_text(resp):
+        choices = getattr(resp, "choices", None)
+        if not choices:
+            try:
+                raw = resp.model_dump()
+            except Exception:
+                raw = str(resp)
+            raise RuntimeError(f"Invalid chat completion response: missing choices. Raw response: {raw}")
+
+        message = getattr(choices[0], "message", None)
+        if message is None:
+            raise RuntimeError("Invalid chat completion response: choices[0].message is None")
+
+        content = getattr(message, "content", None)
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for item in content:
+                if isinstance(item, dict):
+                    txt = item.get("text")
+                else:
+                    txt = getattr(item, "text", None)
+                if txt:
+                    parts.append(txt)
+            return "\n".join(parts)
+
+        refusal = getattr(message, "refusal", None)
+        if refusal:
+            return refusal
+        raise RuntimeError("Invalid chat completion response: message.content is empty")
+
     def inference(self):
         if self.eval_only:
             logger.warning("[Group %s] Cannot run inference in eval_only mode", self.group_id)
@@ -242,13 +275,14 @@ class Evaluator:
             batch_inputs = batch["inputs"]
 
             outputs = []
-            for req in batch_inputs:
-                resp = self._chat_with_retry(req)
-                content = resp.choices[0].message.content
-                if isinstance(content, list):
-                    content = "\n".join(
-                        [c.get("text", "") for c in content if isinstance(c, dict)]
-                    )
+            for line, req in zip(batch_line, batch_inputs):
+                try:
+                    resp = self._chat_with_retry(req)
+                    content = self._extract_response_text(resp)
+                except Exception as e:
+                    sample_index = line.get("index", "N/A") if hasattr(line, "get") else "N/A"
+                    logger.error("[Group %s] Failed on sample index=%s: %s", self.group_id, sample_index, e)
+                    raise
                 outputs.append(content or "")
 
             batch_ret = [self._post_process(o) for o in outputs]
@@ -264,6 +298,22 @@ class Evaluator:
 
     def merge_results(self):
         if self.num_groups <= 1:
+            if not osp.exists(self.result_file_path):
+                logger.error("Single-process result file missing: %s", self.result_file_path)
+                return False
+
+            temp_dataset = self.VIDEO_DATASET_CLS(None, group_id=0, num_groups=1, fps=self.fps)
+            expected_total_count = len(temp_dataset)
+
+            actual_count = 0
+            with open(self.result_file_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        actual_count += 1
+
+            if actual_count != expected_total_count:
+                logger.error("Single-process result count mismatch: expected %s, got %s", expected_total_count, actual_count)
+                return False
             return True
 
         expected_files = [
