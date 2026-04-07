@@ -102,6 +102,8 @@ class Evaluator:
             self.result_file_path = osp.join(self.pred_root, f"{self.model_name}_{self.dataset_name}.jsonl")
         self.final_result_file_path = osp.join(self.pred_root, f"{self.model_name}_{self.dataset_name}.xlsx")
         os.makedirs(self.pred_root, exist_ok=True)
+        self.log_file_path = osp.join(self.pred_root, f"group_{self.group_id}.log")
+        self._attach_file_logger()
 
         self.VIDEO_DATASET_CLS = self._resolve_dataset_cls(dataset_name)
 
@@ -162,6 +164,23 @@ class Evaluator:
         if dataset_name == "FCMBench":
             return 1000
         return 10
+
+
+    def _attach_file_logger(self):
+        abs_log_path = osp.abspath(self.log_file_path)
+        for h in logger.handlers:
+            if isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", None) == abs_log_path:
+                return
+
+        file_handler = logging.FileHandler(self.log_file_path, encoding="utf-8")
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+        )
+        logger.addHandler(file_handler)
 
     def _get_completed_indices(self):
         completed_indices = set()
@@ -295,6 +314,12 @@ class Evaluator:
             self.base_url,
         )
 
+        logger.info("[Group %s] log file: %s", self.group_id, self.log_file_path)
+
+        total_items = 0
+        total_infer_time_sec = 0.0
+        loop_start = time.perf_counter()
+
         for _ in tqdm(range(len(self.dataloader)), desc=f"Group {self.group_id} processing {self.dataset_name}"):
             batch = next(self.dataloader_iter)
             batch_line = batch["line"]
@@ -303,7 +328,10 @@ class Evaluator:
             outputs = []
             for line, req in zip(batch_line, batch_inputs):
                 try:
+                    sample_start = time.perf_counter()
                     resp = self._chat_with_retry(req)
+                    total_infer_time_sec += time.perf_counter() - sample_start
+                    total_items += 1
                     content = self._extract_response_text(resp)
                 except Exception as e:
                     sample_index = line.get("index", "N/A") if hasattr(line, "get") else "N/A"
@@ -313,13 +341,23 @@ class Evaluator:
 
             batch_ret = [self._post_process(o) for o in outputs]
             for line, ret in zip(batch_line, batch_ret):
-                line["original_response"] = ret["original_response"]
-                line["prediction"] = ret["prediction"]
-                line["option_logprobs"] = None
+                line_dict = line.to_dict() if hasattr(line, "to_dict") else dict(line)
+                line_dict["original_response"] = ret["original_response"]
+                line_dict["prediction"] = ret["prediction"]
+                line_dict["option_logprobs"] = None
                 with open(self.result_file_path, "a", encoding="utf-8") as f:
-                    json.dump(line.to_dict() if hasattr(line, "to_dict") else dict(line), f, ensure_ascii=False)
+                    json.dump(line_dict, f, ensure_ascii=False)
                     f.write("\n")
-
+        loop_elapsed_sec = time.perf_counter() - loop_start
+        avg_infer_time_sec = total_infer_time_sec / total_items if total_items else 0.0
+        logger.info(
+            "[Group %s] inference timing: samples=%s, total_infer_time=%.3fs, avg_infer_time_per_sample=%.3fs, loop_elapsed=%.3fs",
+            self.group_id,
+            total_items,
+            total_infer_time_sec,
+            avg_infer_time_sec,
+            loop_elapsed_sec,
+        )
         logger.info("[Group %s] inference done, saved to %s", self.group_id, self.result_file_path)
 
     def merge_results(self):
@@ -375,4 +413,5 @@ class Evaluator:
 
     def evaluate(self):
         return None
+
 
