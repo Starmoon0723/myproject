@@ -2,13 +2,14 @@
 import logging
 import os
 import os.path as osp
+import subprocess
 import time
+from datetime import datetime
 
 import pandas as pd
 from openai import OpenAI
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from vlmeval.smp import githash, timestr
 
 from datasets_video import (
     FCMBenchDataset,
@@ -25,6 +26,31 @@ from datasets_video import (
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+
+def timestr(format_type="day"):
+    now = datetime.now()
+    if format_type == "day":
+        return now.strftime("%Y%m%d")
+    if format_type == "hour":
+        return now.strftime("%Y%m%d_%H%M%S")
+    return now.strftime("%Y%m%d")
+
+
+def githash(digits=8):
+    try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=current_dir,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()[:digits]
+        return "unknown"
+    except Exception:
+        return "unknown"
 
 class Evaluator:
     def __init__(
@@ -349,3 +375,4 @@ class Evaluator:
 
     def evaluate(self):
         return None
+
