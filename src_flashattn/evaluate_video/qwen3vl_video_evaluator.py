@@ -7,7 +7,7 @@ import time
 import pandas as pd
 import torch
 from openai import OpenAI
-from modelscope import AutoProcessor, Qwen3VLMoeForConditionalGeneration, Qwen3VLForConditionalGeneration
+from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration, Qwen3VLForConditionalGeneration
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from datetime import datetime
@@ -376,7 +376,7 @@ class Evaluator:
         try:
             logger.info("Loading dataset to validate result count...")
             # 创建一个临时的processor用于加载数据集
-            from modelscope import AutoProcessor
+            from transformers import AutoProcessor
 
             temp_processor = AutoProcessor.from_pretrained(self.model_path)
             temp_dataset = self.VIDEO_DATASET_CLS(temp_processor, group_id=0, num_groups=1, use_vllm=False, fps=2)
