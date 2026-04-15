@@ -125,24 +125,35 @@ class VideoDataset(Dataset):
         messages.append({"role": "user", "content": content})
         return messages
 
-    def _build_mm_processor_kwargs(self):
-        kwargs = {"do_sample_frames": True}
-        if self.fps is not None:
-            kwargs["fps"] = self.fps
-        if self.nframe is not None:
-            kwargs["num_frames"] = self.nframe
-            kwargs["do_sample_frames"] = False
-        if self.min_frames is not None:
-            kwargs["min_frames"] = self.min_frames
-        if self.max_frames is not None:
-            kwargs["max_frames"] = self.max_frames
-        return kwargs
+    # def _build_mm_processor_kwargs(self):
+    #     kwargs = {"do_sample_frames": True}
+    #     if self.fps is not None:
+    #         kwargs["fps"] = self.fps
+    #     if self.nframe is not None:
+    #         kwargs["num_frames"] = self.nframe
+    #         kwargs["do_sample_frames"] = False
+    #     if self.min_frames is not None:
+    #         kwargs["min_frames"] = self.min_frames
+    #     if self.max_frames is not None:
+    #         kwargs["max_frames"] = self.max_frames
+    #     return kwargs
 
     def __getitem__(self, index):
         line = self.data.iloc[index]
         struct = self._build_struct(line)
         request_payload = {
             "messages": self._build_messages(struct),
-            "extra_body": {"mm_processor_kwargs": self._build_mm_processor_kwargs()},
+            # "extra_body": {"mm_processor_kwargs": self._build_mm_processor_kwargs()},
+            "extra_body": {
+                "media_io_kwargs": {
+                    "video": {
+                        "num_frames": 2048,
+                        "fps": 2
+                    }
+                },
+                "mm_processor_kwargs": {
+                    "do_sample_frames": False,
+                }
+            }, 
         }
         return line, request_payload
