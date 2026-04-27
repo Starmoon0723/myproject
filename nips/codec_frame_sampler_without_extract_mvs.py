@@ -301,6 +301,62 @@ def _get_motion_vector_side_data(frame: Any) -> Optional[Any]:
     return None
 
 
+def _compute_motion_features_from_components(
+    dxs: Sequence[float],
+    dys: Sequence[float],
+    ws: Sequence[float],
+    motion_eps: float,
+) -> Dict[str, float]:
+    if not dxs:
+        return {
+            "mv_count": 0,
+            "mv_mean": 0.0,
+            "mv_p90": 0.0,
+            "mv_active_ratio": 0.0,
+            "dir_entropy": 0.0,
+            "global_dx": 0.0,
+            "global_dy": 0.0,
+        }
+
+    gdx = weighted_median(dxs, ws)
+    gdy = weighted_median(dys, ws)
+
+    mags: List[float] = []
+    mag_weights: List[float] = []
+    angle_bins = [0.0] * 8
+    total_area = 0.0
+    active_area = 0.0
+
+    for dx, dy, w in zip(dxs, dys, ws):
+        local_dx = dx - gdx
+        local_dy = dy - gdy
+        mag = math.hypot(local_dx, local_dy)
+        mags.append(mag)
+        mag_weights.append(w)
+        total_area += w
+        if mag > motion_eps:
+            active_area += w
+            angle = math.atan2(local_dy, local_dx)  # [-pi, pi]
+            bin_id = int(((angle + math.pi) / (2 * math.pi)) * 8) % 8
+            angle_bins[bin_id] += w
+
+    mv_mean = sum(m * w for m, w in zip(mags, mag_weights)) / (sum(mag_weights) + 1e-9)
+    mv_p90 = weighted_quantile(mags, mag_weights, 0.90)
+    mv_active_ratio = active_area / (total_area + 1e-9)
+    dir_probs = [b / (sum(angle_bins) + 1e-9) for b in angle_bins]
+    dir_entropy = entropy_from_probs(dir_probs)
+
+    return {
+        "mv_count": int(len(dxs)),
+        "mv_mean": float(mv_mean),
+        "mv_p90": float(mv_p90),
+        "mv_active_ratio": float(mv_active_ratio),
+        "dir_entropy": float(dir_entropy),
+        "global_dx": float(gdx),
+        "global_dy": float(gdy),
+    }
+
+
 def parse_motion_vectors_with_pyav(video_path: Path) -> Dict[int, List[MotionVector]]:
     """
     Returns:
@@ -384,13 +440,85 @@ def parse_motion_vectors_with_pyav(video_path: Path) -> Dict[int, List[MotionVec
     return out
 
 
+def parse_motion_vector_stats_with_pyav(
+    video_path: Path,
+    motion_eps: float = 0.75,
+) -> Dict[int, Dict[str, float]]:
+    """
+    Faster low-memory path that decodes MV side-data but only keeps per-frame
+    aggregated motion statistics needed by frame scoring.
+    """
+    if av is None:
+        raise RuntimeError(
+            "PyAV is not installed. Please install it first, e.g.:\n"
+            "pip install av"
+        )
+
+    out: Dict[int, Dict[str, float]] = {}
+    with av.open(str(video_path)) as container:
+        stream = container.streams.video[0]
+        codec_ctx = stream.codec_context
+
+        configured = False
+        try:
+            codec_ctx.flags2 |= av.codec.context.Flags2.EXPORT_MVS
+            configured = True
+        except Exception:
+            pass
+
+        if not configured:
+            try:
+                opts = dict(getattr(codec_ctx, "options", {}) or {})
+                opts["flags2"] = "+export_mvs"
+                codec_ctx.options = opts
+                configured = True
+            except Exception:
+                pass
+
+        try:
+            is_open = bool(getattr(codec_ctx, "is_open", False))
+            if not is_open:
+                codec_ctx.open()
+        except Exception:
+            pass
+
+        frame_num1 = 0
+        for packet in container.demux(stream):
+            for frame in packet.decode():
+                frame_num1 += 1
+                mv_side_data = _get_motion_vector_side_data(frame)
+                if mv_side_data is None:
+                    continue
+
+                dxs: List[float] = []
+                dys: List[float] = []
+                ws: List[float] = []
+                for mv in mv_side_data:
+                    src_x = safe_int(getattr(mv, "src_x", 0))
+                    src_y = safe_int(getattr(mv, "src_y", 0))
+                    dst_x = safe_int(getattr(mv, "dst_x", 0))
+                    dst_y = safe_int(getattr(mv, "dst_y", 0))
+                    block_w = safe_int(getattr(mv, "w", 0))
+                    block_h = safe_int(getattr(mv, "h", 0))
+
+                    dxs.append(float(dst_x - src_x))
+                    dys.append(float(dst_y - src_y))
+                    ws.append(float(max(block_w, 1) * max(block_h, 1)))
+
+                if dxs:
+                    out[frame_num1] = _compute_motion_features_from_components(dxs, dys, ws, motion_eps=motion_eps)
+    return out
+
+
 def save_offline_video_data(
     out_path: Path,
     input_dir: Path,
     video_path: Path,
     frames: List[FrameInfo],
     frame_to_mvs: Optional[Dict[int, List[MotionVector]]],
+    frame_to_mv_stats: Optional[Dict[int, Dict[str, float]]],
     meta: Dict[str, Any],
+    compact_json: bool = False,
 ) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     rel = str(video_path.relative_to(input_dir))
@@ -414,6 +542,7 @@ def save_offline_video_data(
             for f in frames
         ],
         "motion_vectors": {},
+        "motion_vector_stats": {},
     }
     if frame_to_mvs is not None:
         payload["motion_vectors"] = {
@@ -436,12 +565,24 @@ def save_offline_video_data(
             ]
             for frame_num1, mvs in frame_to_mvs.items()
         }
-    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    if frame_to_mv_stats is not None:
+        payload["motion_vector_stats"] = {str(k): v for k, v in frame_to_mv_stats.items()}
+
+    if compact_json:
+        text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    else:
+        text = json.dumps(payload, ensure_ascii=False, indent=2)
+    out_path.write_text(text, encoding="utf-8")
 
 
 def load_offline_video_data(
     cache_path: Path,
-) -> Tuple[List[FrameInfo], Optional[Dict[int, List[MotionVector]]], Dict[str, Any]]:
+) -> Tuple[
+    List[FrameInfo],
+    Optional[Dict[int, List[MotionVector]]],
+    Optional[Dict[int, Dict[str, float]]],
+    Dict[str, Any],
+]:
     payload = json.loads(cache_path.read_text(encoding="utf-8"))
 
     raw_frames = payload.get("frames", [])
@@ -489,10 +630,28 @@ def load_offline_video_data(
             if parsed:
                 frame_to_mvs[frame_num1] = parsed
 
+    raw_mv_stats = payload.get("motion_vector_stats", None)
+    frame_to_mv_stats: Optional[Dict[int, Dict[str, float]]] = None
+    if isinstance(raw_mv_stats, dict):
+        frame_to_mv_stats = {}
+        for k, stats in raw_mv_stats.items():
+            frame_num1 = safe_int(k, -1)
+            if frame_num1 <= 0 or not isinstance(stats, dict):
+                continue
+            frame_to_mv_stats[frame_num1] = {
+                "mv_count": safe_int(stats.get("mv_count", 0)),
+                "mv_mean": safe_float(stats.get("mv_mean", 0.0)),
+                "mv_p90": safe_float(stats.get("mv_p90", 0.0)),
+                "mv_active_ratio": safe_float(stats.get("mv_active_ratio", 0.0)),
+                "dir_entropy": safe_float(stats.get("dir_entropy", 0.0)),
+                "global_dx": safe_float(stats.get("global_dx", 0.0)),
+                "global_dy": safe_float(stats.get("global_dy", 0.0)),
+            }
+
     meta = payload.get("meta", {})
     if not isinstance(meta, dict):
         meta = {}
-    return frames, frame_to_mvs, meta
+    return frames, frame_to_mvs, frame_to_mv_stats, meta
 
 
 # -----------------------------
@@ -501,63 +660,16 @@ def load_offline_video_data(
 
 
 def compute_motion_features(mvs: List[MotionVector], motion_eps: float = 0.75) -> Dict[str, float]:
-    if not mvs:
-        return {
-            "mv_count": 0,
-            "mv_mean": 0.0,
-            "mv_p90": 0.0,
-            "mv_active_ratio": 0.0,
-            "dir_entropy": 0.0,
-            "global_dx": 0.0,
-            "global_dy": 0.0,
-        }
-
     dxs = [mv.dx for mv in mvs]
     dys = [mv.dy for mv in mvs]
     ws = [mv.area for mv in mvs]
-
-    gdx = weighted_median(dxs, ws)
-    gdy = weighted_median(dys, ws)
-
-    mags: List[float] = []
-    mag_weights: List[float] = []
-    angle_bins = [0.0] * 8
-    total_area = 0.0
-    active_area = 0.0
-
-    for mv, w in zip(mvs, ws):
-        local_dx = mv.dx - gdx
-        local_dy = mv.dy - gdy
-        mag = math.hypot(local_dx, local_dy)
-        mags.append(mag)
-        mag_weights.append(w)
-        total_area += w
-        if mag > motion_eps:
-            active_area += w
-            angle = math.atan2(local_dy, local_dx)  # [-pi, pi]
-            bin_id = int(((angle + math.pi) / (2 * math.pi)) * 8) % 8
-            angle_bins[bin_id] += w
-
-    mv_mean = sum(m * w for m, w in zip(mags, mag_weights)) / (sum(mag_weights) + 1e-9)
-    mv_p90 = weighted_quantile(mags, mag_weights, 0.90)
-    mv_active_ratio = active_area / (total_area + 1e-9)
-    dir_probs = [b / (sum(angle_bins) + 1e-9) for b in angle_bins]
-    dir_entropy = entropy_from_probs(dir_probs)
-
-    return {
-        "mv_count": int(len(mvs)),
-        "mv_mean": float(mv_mean),
-        "mv_p90": float(mv_p90),
-        "mv_active_ratio": float(mv_active_ratio),
-        "dir_entropy": float(dir_entropy),
-        "global_dx": float(gdx),
-        "global_dy": float(gdy),
-    }
+    return _compute_motion_features_from_components(dxs, dys, ws, motion_eps=motion_eps)
 
 
 def build_frame_features(
     frames: List[FrameInfo],
     frame_to_mvs: Optional[Dict[int, List[MotionVector]]] = None,
+    frame_to_mv_stats: Optional[Dict[int, Dict[str, float]]] = None,
     motion_eps: float = 0.75,
 ) -> List[FrameFeatures]:
     features: List[FrameFeatures] = []
@@ -578,8 +690,21 @@ def build_frame_features(
             "global_dx": 0.0,
             "global_dy": 0.0,
         }
-        if frame_to_mvs is not None:
-            motion = compute_motion_features(frame_to_mvs.get(fr.frame_idx0 + 1, []), motion_eps=motion_eps)
+        frame_num1 = fr.frame_idx0 + 1
+        if frame_to_mv_stats is not None:
+            stats = frame_to_mv_stats.get(frame_num1, None)
+            if stats is not None:
+                motion = {
+                    "mv_count": safe_int(stats.get("mv_count", 0)),
+                    "mv_mean": safe_float(stats.get("mv_mean", 0.0)),
+                    "mv_p90": safe_float(stats.get("mv_p90", 0.0)),
+                    "mv_active_ratio": safe_float(stats.get("mv_active_ratio", 0.0)),
+                    "dir_entropy": safe_float(stats.get("dir_entropy", 0.0)),
+                    "global_dx": safe_float(stats.get("global_dx", 0.0)),
+                    "global_dy": safe_float(stats.get("global_dy", 0.0)),
+                }
+        elif frame_to_mvs is not None:
+            motion = compute_motion_features(frame_to_mvs.get(frame_num1, []), motion_eps=motion_eps)
 
         global_motion_delta = 0.0
         if features:
@@ -792,7 +917,7 @@ def process_one_video(
         cache_path = cache_json_path_for_video(offline_cache_dir, input_dir, video_path)
         if not cache_path.is_file():
             raise FileNotFoundError(f"offline cache not found: {cache_path}")
-        frames, frame_to_mvs, cached_meta = load_offline_video_data(cache_path)
+        frames, frame_to_mvs, frame_to_mv_stats, cached_meta = load_offline_video_data(cache_path)
         mv_used = bool(cached_meta.get("motion_extractor_used", False))
         warning = cached_meta.get("warning", None)
         cache_source = str(cache_path)
@@ -800,6 +925,7 @@ def process_one_video(
         frames = ffprobe_frames(video_path)
         mv_used = False
         frame_to_mvs = None
+        frame_to_mv_stats = None
         warning = None
 
         try:
@@ -811,7 +937,12 @@ def process_one_video(
             warning = f"PyAV motion-vector read failed; fallback to packet-size-only mode: {exc}"
             frame_to_mvs = None
 
-    features = build_frame_features(frames, frame_to_mvs=frame_to_mvs, motion_eps=motion_eps)
+    features = build_frame_features(
+        frames,
+        frame_to_mvs=frame_to_mvs,
+        frame_to_mv_stats=frame_to_mv_stats,
+        motion_eps=motion_eps,
+    )
 
     meta = {
         "video_path": str(video_path),

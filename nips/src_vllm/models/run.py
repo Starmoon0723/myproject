@@ -1,5 +1,8 @@
 ﻿import os
 
+os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+os.environ["VLLM_FLASH_ATTN_VERSION"] = "2"
+os.environ["VLLM_USE_MODELSCOPE"] = "True"
 os.environ["NCCL_DEBUG"] = ""
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 # os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -11,7 +14,7 @@ import sys
 import numpy as np
 import torch
 import torch.multiprocessing
-
+import socket
 import logging
 
 import random
@@ -24,7 +27,7 @@ logging.basicConfig(
 )
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from evaluate_video import Evaluator
+from evaluate_video import Evaluator, find_free_port
 
 # random.seed(3407)  # 设置随机种子
 # np.random.seed(3407)
@@ -34,6 +37,13 @@ from evaluate_video import Evaluator
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+def find_free_port() -> int:
+    """Find an available TCP port on localhost."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+    return port
 
 def worker(group_id, num_groups, args):
     random.seed(3407)  # 设置随机种子
@@ -42,6 +52,8 @@ def worker(group_id, num_groups, args):
     torch.cuda.manual_seed_all(3407)
 
     logger.info(f"[Group {group_id}] Process initialized, CUDA_VISIBLE_DEVICES: {os.environ['CUDA_VISIBLE_DEVICES']}")
+    logger.info("Using vLLM: True")
+
     evaluator = Evaluator(
         group_id=group_id,
         num_groups=num_groups,
@@ -50,11 +62,20 @@ def worker(group_id, num_groups, args):
         dataset_name=args.dataset,
         output_dir=args.output,
         moe=args.moe,
+        use_vllm=True,
         post_process=args.post_process,
         resume=not args.disable_resume,
         eval_only=False,  # Worker需要完整初始化
         gpu_memory_utilization=args.gpu_memory_utilization,
         sample_path=args.sample_path,
+        mm_cache_dir=args.mm_cache_dir,
+        use_mm_cache=args.use_mm_cache,
+        mm_cache_read_only=args.mm_cache_read_only,
+        video_pruning_rate=args.video_pruning_rate,
+        video_pruning_method=args.video_pruning_method,
+        video_divprune_exact_threshold=args.video_divprune_exact_threshold,
+        fps=args.fps,
+        nframe=args.nframe,
     )
 
     # Worker只执行推理
@@ -62,9 +83,6 @@ def worker(group_id, num_groups, args):
 
 
 def main(nproc):
-    # Compatibility: allow accidental call with argparse.Namespace.
-    if isinstance(nproc, argparse.Namespace):
-        nproc = nproc.nproc
     num_groups = nproc
     num_gpus = torch.cuda.device_count()
     world_size = num_gpus // num_groups
@@ -96,7 +114,13 @@ def main(nproc):
         env = os.environ.copy()
         env["CUDA_VISIBLE_DEVICES"] = gpu_ids
         env["WORLD_SIZE"] = str(world_size)
-        logger.info(f"[Group {group_id}] WORLD_SIZE={world_size}, CUDA_VISIBLE_DEVICES={gpu_ids}")
+        env["VLLM_HOST_IP"] = "127.0.0.1"
+        env["VLLM_PORT"] = str(find_free_port())
+
+        logger.info(
+            f"[Group {group_id}] WORLD_SIZE={world_size}, CUDA_VISIBLE_DEVICES={gpu_ids}, "
+            f"{env['VLLM_HOST_IP']}:{env['VLLM_PORT']}"
+        )
 
         # 使用subprocess启动新的Python进程
         cmd = [
@@ -118,6 +142,22 @@ def main(nproc):
         ]
         if args.sample_path:
             cmd.extend(["--sample_path", args.sample_path])
+        if args.mm_cache_dir:
+            cmd.extend(["--mm_cache_dir", args.mm_cache_dir])
+        if args.use_mm_cache:
+            cmd.append("--use_mm_cache")
+        if args.mm_cache_read_only:
+            cmd.append("--mm_cache_read_only")
+        if args.video_pruning_rate is not None:
+            cmd.extend(["--video_pruning_rate", str(args.video_pruning_rate)])
+        cmd.extend(["--video_pruning_method", str(args.video_pruning_method)])
+        cmd.extend(
+            [
+                "--video_divprune_exact_threshold",
+                str(args.video_divprune_exact_threshold),
+            ]
+        )
+        cmd.extend(["--fps", str(args.fps), "--nframe", str(args.nframe)])
         cmd.extend(["--gpu_memory_utilization", str(args.gpu_memory_utilization)])
 
         if args.moe:
@@ -138,10 +178,19 @@ def main(nproc):
         dataset_name=args.dataset,
         output_dir=args.output,
         moe=args.moe,
+        use_vllm=True,
         post_process=args.post_process,
         resume=not args.disable_resume,
         eval_only=True,  # 使用eval_only模式，不初始化模型和数据
         sample_path=args.sample_path,
+        mm_cache_dir=args.mm_cache_dir,
+        use_mm_cache=args.use_mm_cache,
+        mm_cache_read_only=args.mm_cache_read_only,
+        video_pruning_rate=args.video_pruning_rate,
+        video_pruning_method=args.video_pruning_method,
+        video_divprune_exact_threshold=args.video_divprune_exact_threshold,
+        fps=args.fps,
+        nframe=args.nframe,
     )
 
     # 等待所有进程完成
@@ -165,14 +214,14 @@ if __name__ == "__main__":
     torch.multiprocessing.set_start_method("spawn", force=True)
 
     parser = argparse.ArgumentParser(description="Run video evaluation with Qwen3-VL model")
-    parser.add_argument("--nproc", type=int, default=1)  
-    parser.add_argument("--worker", action="store_true", help="Worker mode")    # 是否为worker模式                       # 进程数
+    parser.add_argument("--nproc", type=int, default=1)                         # 进程数
+    parser.add_argument("--worker", action="store_true", help="Worker mode")    # 是否为worker模式
     parser.add_argument("--group_id", type=int, default=0)                      # 组id
     parser.add_argument("--num_groups", type=int, default=1)                    # 组数
     parser.add_argument("--model_name", type=str, default="Qwen3-VL-8B-Instruct") # 模型名称
-    parser.add_argument("--model_path", type=str, default="/data/oceanus_ctr/j-cuirunze-jk/ckpts/Qwen/Qwen3-VL-8B-Instruct") # 模型路径
+    parser.add_argument("--model_path", type=str, default="Qwen/Qwen3-VL-8B-Instruct") # 模型路径
     parser.add_argument("--dataset", type=str, default="Video-MME")              # 数据集名称
-    parser.add_argument("--output", type=str, default="/data/oceanus_ctr/j-shangshouduo-jk/myproject/output/results/backbone")      # 输出路径
+    parser.add_argument("--output", type=str, default="./outputs/Qwen3-VL")      # 输出路径
     parser.add_argument("--moe", action="store_true", default=False)             # 是否使用moe
     parser.add_argument("--post_process", action="store_true", default=False)    # 处理cot输出
     parser.add_argument("--disable_resume", action="store_true", default=False)  # 是否禁用续写
@@ -183,8 +232,71 @@ if __name__ == "__main__":
         default=None,
         help="Optional jsonl path to per-sample frame_indices/image_paths (e.g. q-frame selected_frames_manifest.jsonl).",
     )
+    parser.add_argument(
+        "--mm_cache_dir",
+        type=str,
+        default=None,
+        help="Optional directory for offline cached mm_data/video_kwargs tensors.",
+    )
+    parser.add_argument(
+        "--use_mm_cache",
+        action="store_true",
+        default=False,
+        help="Enable mm cache read/write during evaluation.",
+    )
+    parser.add_argument(
+        "--mm_cache_read_only",
+        action="store_true",
+        default=False,
+        help="When enabled with --use_mm_cache, only read existing cache and never write new files.",
+    )
+    parser.add_argument(
+        "--video_pruning_rate",
+        type=float,
+        default=None,
+        help="Enable multimodal video pruning path in vLLM. Must be in (0, 1). "
+             "When custom video_token_keep_indices is provided, those indices are used.",
+    )
+    parser.add_argument(
+        "--video_pruning_method",
+        type=str,
+        default="evs",
+        choices=["evs", "divprune"],
+        help="Runtime video token pruning method used when --video_pruning_rate is set.",
+    )
+    parser.add_argument(
+        "--video_divprune_exact_threshold",
+        type=int,
+        default=4096,
+        help="DivPrune first-token exact-init threshold (N <= threshold uses exact init).",
+    )
+    parser.add_argument(
+        "--fps",
+        type=int,
+        default=2,
+        help="Video sampling fps. Set --fps=-1 to use --nframe.",
+    )
+    parser.add_argument(
+        "--nframe",
+        type=int,
+        default=-1,
+        help="Fixed number of sampled frames when --fps=-1.",
+    )
 
     args = parser.parse_args()
+    if args.video_pruning_rate is not None:
+        if not (0.0 < args.video_pruning_rate < 1.0):
+            raise ValueError("--video_pruning_rate must be in (0, 1).")
+    if args.video_divprune_exact_threshold <= 0:
+        raise ValueError("--video_divprune_exact_threshold must be > 0.")
+    if args.fps == -1:
+        if args.nframe <= 0:
+            raise ValueError("When --fps=-1, --nframe must be a positive integer.")
+    else:
+        if args.fps <= 0:
+            raise ValueError("--fps must be > 0, or set --fps=-1 to use --nframe.")
+        if args.nframe != -1:
+            raise ValueError("When --fps is specified, --nframe must be -1.")
 
     if args.worker:
         # Worker模式：执行实际任务

@@ -1,5 +1,8 @@
 ﻿import os
 
+os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+os.environ["VLLM_FLASH_ATTN_VERSION"] = "2"
+os.environ["VLLM_USE_MODELSCOPE"] = "True"
 os.environ["NCCL_DEBUG"] = ""
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 # os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -24,7 +27,7 @@ logging.basicConfig(
 )
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from evaluate_video import Evaluator
+from evaluate_video import Evaluator, find_free_port
 
 # random.seed(3407)  # 设置随机种子
 # np.random.seed(3407)
@@ -42,6 +45,8 @@ def worker(group_id, num_groups, args):
     torch.cuda.manual_seed_all(3407)
 
     logger.info(f"[Group {group_id}] Process initialized, CUDA_VISIBLE_DEVICES: {os.environ['CUDA_VISIBLE_DEVICES']}")
+    logger.info(f"Using vLLM: {args.use_vllm}")  # 调试用日志
+
     evaluator = Evaluator(
         group_id=group_id,
         num_groups=num_groups,
@@ -50,6 +55,7 @@ def worker(group_id, num_groups, args):
         dataset_name=args.dataset,
         output_dir=args.output,
         moe=args.moe,
+        use_vllm=args.use_vllm,
         post_process=args.post_process,
         resume=not args.disable_resume,
         eval_only=False,  # Worker需要完整初始化
@@ -62,9 +68,6 @@ def worker(group_id, num_groups, args):
 
 
 def main(nproc):
-    # Compatibility: allow accidental call with argparse.Namespace.
-    if isinstance(nproc, argparse.Namespace):
-        nproc = nproc.nproc
     num_groups = nproc
     num_gpus = torch.cuda.device_count()
     world_size = num_gpus // num_groups
@@ -96,7 +99,13 @@ def main(nproc):
         env = os.environ.copy()
         env["CUDA_VISIBLE_DEVICES"] = gpu_ids
         env["WORLD_SIZE"] = str(world_size)
-        logger.info(f"[Group {group_id}] WORLD_SIZE={world_size}, CUDA_VISIBLE_DEVICES={gpu_ids}")
+        env["VLLM_HOST_IP"] = "127.0.0.1"
+        env["VLLM_PORT"] = str(find_free_port())
+
+        logger.info(
+            f"[Group {group_id}] WORLD_SIZE={world_size}, CUDA_VISIBLE_DEVICES={gpu_ids}, "
+            f"{env['VLLM_HOST_IP']}:{env['VLLM_PORT']}"
+        )
 
         # 使用subprocess启动新的Python进程
         cmd = [
@@ -122,6 +131,8 @@ def main(nproc):
 
         if args.moe:
             cmd.append("--moe")
+        if args.use_vllm:
+            cmd.append("--use_vllm")
         if args.post_process:
             cmd.append("--post_process")
         if args.disable_resume:
@@ -138,6 +149,7 @@ def main(nproc):
         dataset_name=args.dataset,
         output_dir=args.output,
         moe=args.moe,
+        use_vllm=args.use_vllm,
         post_process=args.post_process,
         resume=not args.disable_resume,
         eval_only=True,  # 使用eval_only模式，不初始化模型和数据
@@ -165,15 +177,16 @@ if __name__ == "__main__":
     torch.multiprocessing.set_start_method("spawn", force=True)
 
     parser = argparse.ArgumentParser(description="Run video evaluation with Qwen3-VL model")
-    parser.add_argument("--nproc", type=int, default=1)  
-    parser.add_argument("--worker", action="store_true", help="Worker mode")    # 是否为worker模式                       # 进程数
+    parser.add_argument("--nproc", type=int, default=1)                         # 进程数
+    parser.add_argument("--worker", action="store_true", help="Worker mode")    # 是否为worker模式
     parser.add_argument("--group_id", type=int, default=0)                      # 组id
     parser.add_argument("--num_groups", type=int, default=1)                    # 组数
     parser.add_argument("--model_name", type=str, default="Qwen3-VL-8B-Instruct") # 模型名称
-    parser.add_argument("--model_path", type=str, default="/data/oceanus_ctr/j-cuirunze-jk/ckpts/Qwen/Qwen3-VL-8B-Instruct") # 模型路径
+    parser.add_argument("--model_path", type=str, default="Qwen/Qwen3-VL-8B-Instruct") # 模型路径
     parser.add_argument("--dataset", type=str, default="Video-MME")              # 数据集名称
-    parser.add_argument("--output", type=str, default="/data/oceanus_ctr/j-shangshouduo-jk/myproject/output/results/backbone")      # 输出路径
+    parser.add_argument("--output", type=str, default="./outputs/Qwen3-VL")      # 输出路径
     parser.add_argument("--moe", action="store_true", default=False)             # 是否使用moe
+    parser.add_argument("--use_vllm", action="store_true", default=False)        # 是否使用vllm
     parser.add_argument("--post_process", action="store_true", default=False)    # 处理cot输出
     parser.add_argument("--disable_resume", action="store_true", default=False)  # 是否禁用续写
     parser.add_argument("--gpu_memory_utilization", type=float, default=0.5)     # gpu内存利用率
