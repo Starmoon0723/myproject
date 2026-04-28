@@ -1,0 +1,92 @@
+# ==========================
+# macOS / Linux / Python .gitignore
+# ==========================
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+__MACOSX/
+
+# Linux temporary files
+*~
+.nfs*
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.pyenv/
+.uv/
+.micromamba/
+.conda/
+
+# Distribution / packaging
+build/
+dist/
+eggs/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# IDE / editor settings
+.vscode/
+.idea/
+.spyderproject
+.spyproject
+.ropeproject
+
+# Logs and temp files
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# Project-specific
+*.sqlite3
+*.db
+.mypy_cache/
+.dmypy.json
+.pyre/
+.pytype/
+
+data/
+
+# 忽略 logs 文件夹下的所有内容
+logs/*
+
+# 但是不要忽略 .gitkeep 文件
+!logs/.gitkeep

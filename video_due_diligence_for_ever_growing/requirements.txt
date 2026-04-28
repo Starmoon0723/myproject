@@ -1,0 +1,8 @@
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+pydantic==2.9.0
+python-multipart>=0.0.12
+PyYAML>=6.0.3
+openai==2.8.1
+json-repair==0.54.2
+pytest>=7.0.0

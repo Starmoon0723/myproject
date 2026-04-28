@@ -1,0 +1,145 @@
+# QfinVidCore SDK 配置文件
+# 用于统一管理 SDK 各模块的运行参数
+
+# 核心模块配置
+core:
+  # SDK 版本（与 version.py 中的 sdk_version 对应）
+  version: "0.1.0"
+  # 日志级别：DEBUG, INFO, WARNING, ERROR
+  log_level: "INFO"
+  # 视频实体配置
+  video_entity:
+    # 是否在创建时验证文件存在
+    ensure_exists: true
+
+
+# 依赖配置
+dependencies:
+  # FFmpeg 配置
+  ffmpeg:
+    # 自定义 FFmpeg 路径（若未设置则使用系统 PATH 中的）
+    path: null
+    # 默认编码参数
+    default_codec:
+      mp4: "h264"       # MP4 默认编码
+      mov: "prores"     # MOV 默认编码
+    # 默认命令参数
+    default_args:
+      # 覆盖输出（若为 false，则移除 -y 参数）
+      overwrite: true
+
+
+# 转换模块配置
+transform:
+  # 编码转换配置
+  encoding:
+    # 默认比特率（如 "5M"）
+    default_bitrate: "5M"
+    # 格式转换后缀（避免覆盖原文件）
+    suffix: "_converted"
+  
+  # 时间转换配置
+  temporal:
+    # 抽帧默认配置
+    sample:
+      interval: 30      # 默认每 30 帧取一帧
+      format: "png"     # 默认输出格式
+      output_dir: null  # 默认输出目录（null 表示与视频同目录）
+    # 分割默认配置
+    split:
+      duration: 10      # 默认分割时长（秒）
+      n_clips: 3        # 默认分割片段数
+    # 帧率设置默认配置
+    set_fps:
+      fps: 30           # 默认目标帧率
+    # 帧堆叠默认配置
+    stack_frames:
+      layout: "2x2"     # 默认堆叠布局
+  
+  # 空间转换配置
+  spatial:
+    # 默认调整分辨率
+    resize:
+      width: 1280       # 默认宽度
+      height: 720       # 默认高度
+  
+  # 渲染配置
+  render:
+    # 水印默认配置
+    overlay_image:
+      position: "10:10"  # 默认位置（x:y）
+      opacity: 1.0       # 默认透明度（0-1）
+    # 阴影效果默认配置
+    overlay_shadow:
+      offset: "5:5"      # 默认阴影偏移（x:y）
+      color: "black"     # 默认阴影颜色
+      opacity: 0.5       # 默认阴影透明度
+    # 反射效果默认配置
+    overlay_reflection:
+      strength: 0.5      # 默认反射强度（0-1）
+      gap: 10            # 默认视频与反射之间的间隙
+    # 模糊效果默认配置
+    overlay_blur:
+      strength: 5.0      # 默认模糊强度
+      region: null       # 默认模糊区域（null 表示整个视频）
+
+
+# 感知模块配置
+perception:
+  # 时间事件检测配置
+  temporal_grounding:
+    # 默认检测事件类型
+    event_types: ["action", "scene_change"]
+    # 检测置信度阈值
+    confidence_threshold: 0.7
+  
+  # 关键帧提取配置
+  keyframe_extraction:
+    n_frames: 5         # 默认提取关键帧数量
+    method: "uniform"    # 默认提取方法（均匀采样）
+    output_dir: null     # 默认输出目录
+  
+  # 对象跟踪配置
+  tracking:
+    # 默认跟踪对象类型
+    object_types: ["person", "car", "building"]
+    # 跟踪置信度阈值
+    confidence_threshold: 0.6
+  
+  # 关键信息提取配置
+  key_info_extraction:
+    # 默认提取信息类型
+    info_types: ["basic", "objects", "timestamps"]
+
+
+# 认知模块配置
+cognition:
+  # 视频摘要配置
+  summarization:
+    length: 100         # 默认摘要长度
+    type: "text"        # 默认摘要类型
+    # 摘要生成模型配置（若使用深度学习模型）
+    model:
+      name: null        # 模型名称（null 表示使用默认逻辑）
+      path: null        # 模型路径
+  
+  # 一致性验证配置
+  consistency_verify:
+    # 验证置信度阈值
+    confidence_threshold: 0.7
+    # 默认参考文档类型
+    reference_types: ["text", "image"]
+
+
+# 输出配置
+output:
+  # 默认输出目录（相对于输入视频）
+  default_dir: null     # null 表示与输入视频同目录
+  # 临时文件目录
+  temp_dir: "./temp"    # 默认为项目根目录下的 temp 文件夹
+  # 输出文件命名规则
+  naming:
+    # 分割文件命名模板
+    split: "%s_part_%03d%s"  # 格式：原文件名_part_001.后缀
+    # 抽帧文件命名模板
+    sample: "frame_%06d%s"    # 格式：frame_000001.后缀
