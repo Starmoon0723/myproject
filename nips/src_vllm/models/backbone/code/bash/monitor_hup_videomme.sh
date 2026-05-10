@@ -15,39 +15,40 @@ WORKSPACE_ROOT="/XYFS01/HDD_POOL/hitsz_mszhang/hitsz_mszhang_1/MRC/MRC/MRC_proje
 PROJECT_ROOT="${WORKSPACE_ROOT}/myproject/nips"
 SRC_ROOT="${PROJECT_ROOT}/src_vllm"
 # use vllm_feature_my_change 源码
-VLLM_SRC="${WORKSPACE_ROOT}/vllm_feature_my_change"
+# VLLM_SRC="${WORKSPACE_ROOT}/vllm_feature_my_change"
 ENV_FILE="${WORKSPACE_ROOT}/cache_env_new.sh"
 
 # The env file requires an activated conda env because it configures CUDA_HOME
 # and LD_LIBRARY_PATH from CONDA_PREFIX.
 source "${ENV_FILE}"
 
-export PYTHONPATH="${VLLM_SRC}:${SRC_ROOT}:${PYTHONPATH:-}"
+# export PYTHONPATH="${VLLM_SRC}:${SRC_ROOT}:${PYTHONPATH:-}"
+export PYTHONPATH="${SRC_ROOT}:${PYTHONPATH:-}"
 export PYTORCH_ALLOC_CONF="${PYTORCH_ALLOC_CONF:-expandable_segments:True}"
 export VLLM_WORKER_MULTIPROC_METHOD="${VLLM_WORKER_MULTIPROC_METHOD:-spawn}"
-export VLLM_FLASH_ATTN_VERSION="${VLLM_FLASH_ATTN_VERSION:-2}"
+# export VLLM_FLASH_ATTN_VERSION="${VLLM_FLASH_ATTN_VERSION:-2}"
 export VLLM_USE_MODELSCOPE="${VLLM_USE_MODELSCOPE:-True}"
-export VLLM_DISABLE_CUSTOM_ALL_REDUCE="${VLLM_DISABLE_CUSTOM_ALL_REDUCE:-1}"
+# export VLLM_DISABLE_CUSTOM_ALL_REDUCE="${VLLM_DISABLE_CUSTOM_ALL_REDUCE:-1}"
 export DECORD_EOF_RETRY_MAX="${DECORD_EOF_RETRY_MAX:-20480}"
 
 MODEL_NAME="${MODEL_NAME:-Qwen3-VL-8B-Instruct}"
 MODEL_PATH="${MODEL_PATH:-/XYFS01/HDD_POOL/hitsz_mszhang/hitsz_mszhang_1/MRC/MRC/MRC_project/others/AAA/vlm/hfmodel/qwen3vl_8b}"
-DATASET_NAME="${DATASET_NAME:-MVBench}" # Video-MME，MVBench
-N_PROC="${N_PROC:-2}"
+DATASET_NAME="${DATASET_NAME:-Video-MME}" # Video-MME，MVBench
+N_PROC="${N_PROC:-3}"
 GPU_MEMORY="${GPU_MEMORY:-0.9}"
 FPS="${FPS:-2}"
 NFRAME="${NFRAME:--1}"
 
-CUDA_VISIBLE_DEVICES=0,1
+export CUDA_VISIBLE_DEVICES=0,1,2
 
 OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_ROOT}/output/results/backbone}"
-LOG_DIR="${LOG_DIR:-${PROJECT_ROOT}/output/logs/backbone/mvbench}"
+LOG_DIR="${LOG_DIR:-${PROJECT_ROOT}/output/logs/backbone/videomme}"
 INFERENCE_SCRIPT="${SRC_ROOT}/models/run.py"
 
 SAMPLE_PATH="${SAMPLE_PATH:-}"
 MM_CACHE_DIR="${MM_CACHE_DIR:-${PROJECT_ROOT}/output/mm_cache}"
-USE_MM_CACHE="${USE_MM_CACHE:-0}"
-MM_CACHE_READ_ONLY="${MM_CACHE_READ_ONLY:-0}"
+USE_MM_CACHE="${USE_MM_CACHE:-0}"   # 1 开启缓存读写
+MM_CACHE_READ_ONLY="${MM_CACHE_READ_ONLY:-0}"   # 1 时只读缓存，不写新缓存（缓存缺失时仍会现算，但不落盘）
 
 VIDEO_PRUNING_RATE="${VIDEO_PRUNING_RATE:-}"
 VIDEO_PRUNING_METHOD="${VIDEO_PRUNING_METHOD:-evs}"

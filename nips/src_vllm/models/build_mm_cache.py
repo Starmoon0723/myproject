@@ -2,7 +2,8 @@ import os
 import argparse
 import logging
 
-from modelscope import AutoProcessor
+# from modelscope import AutoProcessor
+from transformers import AutoProcessor
 from tqdm import tqdm
 
 import sys
@@ -66,3 +67,9 @@ def main():
 if __name__ == "__main__":
     main()
 
+# python "/XYFS01/HDD_POOL/hitsz_mszhang/hitsz_mszhang_1/MRC/MRC/MRC_project/others/AAA/vlm/myproject/nips/src_vllm/models/build_mm_cache.py" \
+#   --model_path "/XYFS01/HDD_POOL/hitsz_mszhang/hitsz_mszhang_1/MRC/MRC/MRC_project/others/AAA/vlm/hfmodel/qwen3vl_8b" \
+#   --mm_cache_dir "/XYFS01/HDD_POOL/hitsz_mszhang/hitsz_mszhang_1/MRC/MRC/MRC_project/others/AAA/vlm/myproject/nips/output/mm_cache" \
+#   --fps 2 \
+#   --start 0 \
+#   --limit 5

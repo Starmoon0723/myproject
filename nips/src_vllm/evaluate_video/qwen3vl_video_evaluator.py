@@ -14,6 +14,7 @@ from modelscope import AutoProcessor
 # from vlmeval.smp import githash, timestr
 
 from datasets_video import (
+    MVBenchDataset,
     VideoMMEDataset,
     collate_fn,
 )
@@ -145,9 +146,12 @@ class Evaluator:
         os.makedirs(self.pred_root, exist_ok=True)
 
         # 设置数据集类
-        if dataset_name != "Video-MME":
-            raise ValueError("只支持 Video-MME 数据集")
-        self.VIDEO_DATASET_CLS = VideoMMEDataset
+        if dataset_name == "Video-MME":
+            self.VIDEO_DATASET_CLS = VideoMMEDataset
+        elif dataset_name == "MVBench":
+            self.VIDEO_DATASET_CLS = MVBenchDataset
+        else:
+            raise ValueError("只支持 Video-MME、MVBench 数据集")
 
         # 如果是eval_only模式，跳过所有耗时的初始化
         if eval_only:
@@ -208,7 +212,7 @@ class Evaluator:
         self.llm = LLM(
             model=self.model_path,
             max_num_seqs=1,
-            max_model_len=262144,
+            max_model_len=160000, # 262144
             limit_mm_per_prompt=limit_mm_per_prompt,
             tensor_parallel_size=int(os.environ["WORLD_SIZE"]),
             gpu_memory_utilization=self.gpu_memory_utilization,
@@ -216,7 +220,7 @@ class Evaluator:
             mm_encoder_tp_mode="weights",
             enable_expert_parallel=moe,
             enable_chunked_prefill=True,
-            max_num_batched_tokens=262144,
+            max_num_batched_tokens=160000,  # 262144
             skip_mm_profiling=True,
             video_pruning_rate=self.video_pruning_rate,
             video_pruning_method=self.video_pruning_method,
@@ -530,6 +534,7 @@ class Evaluator:
                 use_vllm=True,
                 fps=self.fps,
                 nframe=self.nframe,
+                sample_path=self.sample_path,
             )
             expected_total_count = len(temp_dataset)
             logger.info(f"Expected total dataset length: {expected_total_count}")

@@ -9,3 +9,4 @@
 *.flag
 *.json
 *.tsv
+*.pt

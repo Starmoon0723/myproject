@@ -11,10 +11,10 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from vlmeval.vlm.qwen3_vl.model import ensure_video_url
+# from vlmeval.vlm.qwen3_vl.model import ensure_video_url
 from pathlib import Path
 
-custom_module_path = "/data/oceanus_share/shangshouduo-jk/myproject/src/models/ours/code"
+custom_module_path = "/XYFS01/HDD_POOL/hitsz_mszhang/hitsz_mszhang_1/MRC/MRC/MRC_project/others/AAA/vlm/myproject/nips/src_vllm/models/ours/code"
 if custom_module_path not in sys.path:
     sys.path.append(custom_module_path)
 from overwrite_vision_process import process_vision_info
@@ -35,6 +35,7 @@ class VideoDataset(Dataset):
         processor,
         group_id=0,
         num_groups=1,
+        group_chunk_size=1,
         dataset_name=None,
         data_root=None,
         data_path=None,
@@ -59,6 +60,7 @@ class VideoDataset(Dataset):
         self.processor = processor
         self.group_id = group_id
         self.num_groups = num_groups
+        self.group_chunk_size = max(1, int(group_chunk_size))
         self.dataset_name = dataset_name
         self.data_root = data_root
         self.data_path = data_path
@@ -181,14 +183,29 @@ class VideoDataset(Dataset):
                 f"{filtered_count} remaining in total"
             )
 
-        # 根据group_id和num_groups对剩余数据进行均匀分配 - 轮询分配
+        # 根据group_id和num_groups对剩余数据进行均匀分配。
+        # group_chunk_size=1 时为轮询分配；>1 时按顺序连续块分配。
         if self.num_groups > 1:
-            group_indices = list(range(group_id, len(full_data), num_groups))
-            self.data = full_data.iloc[group_indices].reset_index(drop=True)
-            logger.info(
-                f"[Group {self.group_id}] processing {len(self.data)} samples with round-robin assignment "
-                "from remaining data"
-            )
+            if self.group_chunk_size == 1:
+                group_indices = list(range(group_id, len(full_data), num_groups))
+                self.data = full_data.iloc[group_indices].reset_index(drop=True)
+                logger.info(
+                    f"[Group {self.group_id}] processing {len(self.data)} samples with round-robin assignment "
+                    "from remaining data"
+                )
+            else:
+                selected_indices = []
+                chunk_id = 0
+                for chunk_start in range(0, len(full_data), self.group_chunk_size):
+                    chunk_end = min(chunk_start + self.group_chunk_size, len(full_data))
+                    if chunk_id % self.num_groups == self.group_id:
+                        selected_indices.extend(range(chunk_start, chunk_end))
+                    chunk_id += 1
+                self.data = full_data.iloc[selected_indices].reset_index(drop=True)
+                logger.info(
+                    f"[Group {self.group_id}] processing {len(self.data)} samples with contiguous-chunk assignment "
+                    f"(chunk_size={self.group_chunk_size}) from remaining data"
+                )
         else:
             self.data = full_data.reset_index(drop=True)
 
@@ -382,7 +399,7 @@ class VideoDataset(Dataset):
             raise ValueError("Only support 1 video input.")
         for s in inputs:
             if s["type"] == "video":
-                item = {"type": "video", "video": ensure_video_url(s["value"])}
+                item = {"type": "video", "video": s["value"]}
                 # 添加帧索引信息
                 if "frame_indices" in s:
                     item["frame_indices"] = s["frame_indices"]

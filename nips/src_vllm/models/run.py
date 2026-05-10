@@ -27,7 +27,7 @@ logging.basicConfig(
 )
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from evaluate_video import Evaluator, find_free_port
+from evaluate_video import Evaluator
 
 # random.seed(3407)  # 设置随机种子
 # np.random.seed(3407)
