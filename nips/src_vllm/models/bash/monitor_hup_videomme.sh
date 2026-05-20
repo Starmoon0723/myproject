@@ -8,6 +8,7 @@
 #   CUDA_VISIBLE_DEVICES=0,1 N_PROC=2 bash monitor_hup_mvbench.sh
 #   VIDEO_PRUNING_RATE=0.5 VIDEO_PRUNING_METHOD=evs bash monitor_hup_mvbench.sh
 #   USE_MM_CACHE=1 MM_CACHE_READ_ONLY=1 bash monitor_hup_mvbench.sh
+# [1] 4026372
 
 set -Eeuo pipefail
 
@@ -35,7 +36,7 @@ MODEL_NAME="${MODEL_NAME:-Qwen3-VL-8B-Instruct}"
 MODEL_PATH="${MODEL_PATH:-/XYFS01/HDD_POOL/hitsz_mszhang/hitsz_mszhang_1/MRC/MRC/MRC_project/others/AAA/vlm/hfmodel/qwen3vl_8b}"
 DATASET_NAME="${DATASET_NAME:-Video-MME}" # Video-MME，MVBench
 N_PROC="${N_PROC:-3}"
-GPU_MEMORY="${GPU_MEMORY:-0.9}"
+GPU_MEMORY="${GPU_MEMORY:-0.67}"
 FPS="${FPS:-2}"
 NFRAME="${NFRAME:--1}"
 
@@ -69,6 +70,7 @@ echo "Workspace: ${WORKSPACE_ROOT}"
 echo "Model: ${MODEL_NAME} (${MODEL_PATH})"
 echo "Dataset: ${DATASET_NAME}"
 echo "N_PROC: ${N_PROC}"
+
 echo "CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-<all visible>}"
 echo "GPU memory utilization: ${GPU_MEMORY}"
 echo "FPS: ${FPS}, NFRAME: ${NFRAME}"

@@ -212,7 +212,7 @@ class Evaluator:
         self.llm = LLM(
             model=self.model_path,
             max_num_seqs=1,
-            max_model_len=160000, # 262144
+            max_model_len=128000, # 262144，119770
             limit_mm_per_prompt=limit_mm_per_prompt,
             tensor_parallel_size=int(os.environ["WORLD_SIZE"]),
             gpu_memory_utilization=self.gpu_memory_utilization,
@@ -220,7 +220,7 @@ class Evaluator:
             mm_encoder_tp_mode="weights",
             enable_expert_parallel=moe,
             enable_chunked_prefill=True,
-            max_num_batched_tokens=160000,  # 262144
+            max_num_batched_tokens=128000,  # 262144，119770
             skip_mm_profiling=True,
             video_pruning_rate=self.video_pruning_rate,
             video_pruning_method=self.video_pruning_method,
@@ -432,9 +432,9 @@ class Evaluator:
 
                 # 保留并导出对齐分析所需字段（不要覆盖已有 keep_indices）。
                 line["prompt_text"] = model_input.get("prompt", "")
-                line["prompt_token_ids"] = getattr(req, "prompt_token_ids", None)
-                if req.outputs and len(req.outputs) > 0:
-                    line["generated_token_ids"] = getattr(req.outputs[0], "token_ids", None)
+                # line["prompt_token_ids"] = getattr(req, "prompt_token_ids", None)
+                # if req.outputs and len(req.outputs) > 0:
+                #     line["generated_token_ids"] = getattr(req.outputs[0], "token_ids", None)
 
                 mm_data = model_input.get("multi_modal_data", {}) or {}
                 video_items = mm_data.get("video", None)

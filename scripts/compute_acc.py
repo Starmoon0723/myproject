@@ -189,9 +189,15 @@ def calculate_accuracy(file_path):
 # 预测正确数 (Correct):  1681
 # 准确率 (Accuracy):    0.6226 (62.26%)
 
-file_name = '/data/oceanus_share/shangshouduo-jk/myproject/output/results/baselines/aks/clip/Qwen3-VL-8B-Instruct/Video-MME/T20260203_G85738573/Qwen3-VL-8B-Instruct_Video-MME.jsonl'
+# file_name = '/data/oceanus_share/shangshouduo-jk/myproject/output/results/baselines/aks/clip/Qwen3-VL-8B-Instruct/Video-MME/T20260203_G85738573/Qwen3-VL-8B-Instruct_Video-MME.jsonl'
 # 总样本数 (Total):    2700
 # 预测正确数 (Correct):  1866
 # 准确率 (Accuracy):    0.6911 (69.11%)
 
+file_name = "/XYFS01/HDD_POOL/hitsz_mszhang/hitsz_mszhang_1/MRC/MRC/MRC_project/others/AAA/vlm/myproject/nips/output/results/backbone/Qwen3-VL-8B-Instruct/Video-MME/T20260512_Gceaa66d6/23_Qwen3-VL-8B-Instruct_Video-MME.jsonl"
+# 821,630,483; 1934, 0.7163
+# qwen3vl backbone
+
 calculate_accuracy(file_name)
+
+
